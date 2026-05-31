@@ -67,8 +67,40 @@
 ## M1 · CLI MVP（Week 2-3）
 
 > **目标**：把 Skill 真正接通模型调用，用 CLI 跑通端到端，输出第 1 个 Demo 短剧。
+>
+> **当前状态（已交付：离线 mock 骨架）** 🚧
+> `src/` 下已落地一个**纯标准库、可离线运行**的 CLI 运行时：Orchestrator 状态机已写成代码（`core/state_machine.py`，忠实映射 `skills/00-orchestrator/SKILL.md` 路由表），14 个 Skill 的 mock 执行器端到端产出全套落盘产物，CLI 提供 `new / status / next / run / compose / skills / providers`。
+> **剩余 M1 工作**：把 `backends/mock.py` 换成真实 HTTP Adapter（OpenAI 兼容 / Seedream / Seedance / MiniMax 等），以及把内存执行器升级为 lease-based `GenerationQueue`。
 
-### 增量交付物
+### 已交付的实际目录（mock 骨架）
+
+```
+agents-studio-ai/
+  pyproject.toml              # 纯标准库；console_scripts: studio = cli.main:main
+  examples/sample_novel.txt   # 端到端冒烟用示例小说
+  src/
+    cli/
+      main.py                 # argparse 入口：new/status/next/run/compose/skills/providers
+      __main__.py             # python -m cli
+    core/
+      project.py              # ✅ ProjectManager（project.json 单一真相）
+      state_machine.py        # ✅ Orchestrator 状态机（路由表代码化）
+      constants.py            # ✅ readiness 状态机 + weight tier + skill id
+      miniyaml.py             # ✅ 零依赖 YAML 输出器（production_plan.yaml 等镜像）
+    backends/
+      base.py                 # ✅ Image/Video/Text/TTS Adapter 协议（对齐 packages/adapters/types.ts）
+      mock.py                 # ✅ mock Adapter（离线、确定性、带成本估算）
+      registry.py             # ✅ 注册表 + 解析兜底（仿 huobao registry.ts）
+    agent_runtime/
+      skill_loader.py         # ✅ 读 skills/<id>/SKILL.md frontmatter
+      executors.py            # ✅ 01-12 各 Skill 的 mock 执行器
+      runner.py               # ✅ 不依赖完整 Agent SDK 的最小 runner（含成本关卡）
+  skills/                     # 已在 M0 完成
+  art-styles/                 # 已在 M0 完成
+  packages/                   # 已在 M0 完成
+```
+
+### 增量交付物（计划态 · 真实 Adapter + 队列）
 
 ```
 agents-studio-ai/
@@ -125,11 +157,14 @@ agents-studio-ai/
 6. **Day 11-12** · 端到端跑通"小说 → 短剧"，输出第 1 个 Demo
 
 ### 验收 DoD
-- [ ] `uv run studio new my-first-drama --novel sample.txt` 可创建项目
-- [ ] `uv run studio run --episode 1` 跑通 11 步骤，输出 `output/episode_1_final.mp4`
-- [ ] 至少支持 2 个图像供应商可切换（环境变量驱动）
-- [ ] 流程总耗时 < 30 分钟（小型示例：3 角色 / 8 分镜 / 2 分钟视频）
-- [ ] 中间产物正确落盘（characters/ / storyboards/ / output/）
+- [x] `studio new my-first-drama --novel sample.txt` 可创建项目（`PYTHONPATH=src python -m cli.main new ...`）
+- [x] `studio run my-drama --auto` 跑通 14 步骤（含 08a），输出 `output/episode_1_final.mp4`（mock 占位）
+- [x] 中间产物正确落盘（analysis/ / scripts/ / assets/ / storyboards/ / output/）
+- [x] 状态机支持任意阶段进入与断点续跑（每步落盘 project.json）
+- [x] 进入视频生成前有成本关卡（`run` 默认停下给预估，`--yes`/`--auto` 放行）
+- [ ] 至少支持 2 个图像供应商可切换（环境变量驱动）— **待真实 Adapter**
+- [ ] 接通真实模型调用后，小型示例总耗时 < 30 分钟 — **待真实 Adapter**
+- [ ] `GenerationQueue` lease-based 队列（当前为单进程顺序执行）— **待**
 
 ---
 

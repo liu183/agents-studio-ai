@@ -1,0 +1,37 @@
+[project]
+name = "agents-studio-ai"
+version = "0.1.0"
+description = "Agent-Native Studio for AI short-drama / manga-drama production (M1 CLI MVP)"
+readme = "README.md"
+requires-python = ">=3.9"
+# M1 CLI MVP runs in mock mode on the Python standard library ONLY.
+# This keeps the runtime fully offline-installable. Real provider SDKs
+# (httpx, pydantic, ffmpeg bindings, ...) are introduced as optional
+# extras in later milestones (see docs/ROADMAP.md).
+dependencies = []
+
+[project.optional-dependencies]
+# Reserved for M1+ real backends. Not required for the mock pipeline.
+backends = []
+dev = []
+
+[project.scripts]
+studio = "cli.main:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
