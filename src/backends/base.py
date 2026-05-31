@@ -22,6 +22,43 @@ class AIConfig:
 
 
 @dataclass
+class ProviderRequest:
+    """A fully-described HTTP request, decoupled from how it is sent.
+
+    Adapters build these (``build_*_request``) and parse responses
+    (``parse_*_response``) without doing any I/O. A ``Transport`` actually
+    sends them. This is the seam that lets every adapter be unit-tested
+    offline with canned JSON (mirrors packages/adapters/types.ts).
+    """
+
+    url: str
+    method: str = "POST"
+    headers: Dict[str, str] = field(default_factory=dict)
+    body: Optional[Any] = None  # dict -> JSON-encoded by the transport
+    query: Dict[str, str] = field(default_factory=dict)
+
+
+class ProviderError(RuntimeError):
+    """Raised when a provider call fails (HTTP error, bad payload, timeout)."""
+
+    def __init__(self, message: str, *, status: Optional[int] = None,
+                 provider: str = "", payload: Any = None):
+        super().__init__(message)
+        self.status = status
+        self.provider = provider
+        self.payload = payload
+
+
+@runtime_checkable
+class Transport(Protocol):
+    """Sends a ProviderRequest and returns parsed JSON; can also fetch bytes."""
+
+    def send_json(self, request: ProviderRequest, timeout: float = 60.0) -> Any: ...
+
+    def download(self, url: str, timeout: float = 120.0) -> bytes: ...
+
+
+@dataclass
 class ImageRequest:
     prompt: str
     size: str = "1024x1024"
@@ -67,7 +104,8 @@ class MediaResult:
     is_async: bool = False
     task_id: Optional[str] = None
     url: Optional[str] = None
-    data: Optional[str] = None  # base64 / hex inline payload
+    data: Optional[str] = None  # inline payload (see data_encoding)
+    data_encoding: str = ""  # "" | "hex" | "base64"
     duration_sec: float = 0.0
     cost: float = 0.0
     meta: Dict[str, Any] = field(default_factory=dict)

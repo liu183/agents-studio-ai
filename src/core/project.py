@@ -84,6 +84,13 @@ class Project:
             handle.write(text)
         return rel_path
 
+    def write_bytes(self, rel_path: str, data: bytes) -> str:
+        full = self.path(rel_path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as handle:
+            handle.write(data)
+        return rel_path
+
     # ---- convenience accessors --------------------------------------------
     @property
     def name(self) -> str:

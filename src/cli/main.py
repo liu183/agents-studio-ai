@@ -236,10 +236,18 @@ def cmd_skills(args: argparse.Namespace) -> int:
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
+    from backends import config as bk
+
     providers = registry.list_providers()
-    print("已注册的 Provider Adapter（M1 仅 mock）:")
+    print("已注册的 Provider Adapter:")
     for kind, names in providers.items():
         print(f"  {kind:6s}: {', '.join(names) or '(none)'}")
+    print("-" * 60)
+    print("当前生效（按环境变量解析，无凭证则回退 mock）:")
+    for kind, name in bk.active_providers().items():
+        tag = "" if name.startswith("mock") else "  (real)"
+        print(f"  {kind:6s}: {name}{tag}")
+    print("\n配置真实供应商示例: ARK_API_KEY=... STUDIO_IMAGE_PROVIDER=seedream")
     return 0
 
 

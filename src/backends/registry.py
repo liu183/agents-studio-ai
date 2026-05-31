@@ -50,6 +50,21 @@ def register_mocks() -> None:
     register_tts(MockTTSAdapter.provider, MockTTSAdapter())
 
 
+def register_real() -> None:
+    """Register the real HTTP adapters (constructed with the default urllib
+    transport). Importing them here keeps the mock-only path import-light."""
+    from .minimax import MiniMaxTTSAdapter, MiniMaxVideoAdapter
+    from .openai_compat import OpenAICompatImageAdapter, OpenAICompatTextAdapter
+    from .volcengine import SeedanceVideoAdapter, SeedreamImageAdapter
+
+    register_image("seedream", SeedreamImageAdapter())
+    register_image("openai", OpenAICompatImageAdapter())
+    register_video("seedance", SeedanceVideoAdapter())
+    register_video("minimax_video", MiniMaxVideoAdapter())
+    register_text("openai_compat", OpenAICompatTextAdapter())
+    register_tts("minimax", MiniMaxTTSAdapter())
+
+
 def get_image(provider: str = "") -> ImageAdapter:
     return image_adapters.get(provider.lower()) or image_adapters[_FALLBACK["image"]]
 
@@ -75,5 +90,7 @@ def list_providers() -> Dict[str, List[str]]:
     }
 
 
-# Pre-register mocks on import so the M1 CLI works out of the box.
+# Pre-register mocks + real adapters on import so the M1 CLI works out of the
+# box offline (mock) and uses real providers automatically when configured.
 register_mocks()
+register_real()

@@ -68,9 +68,10 @@
 
 > **目标**：把 Skill 真正接通模型调用，用 CLI 跑通端到端，输出第 1 个 Demo 短剧。
 >
-> **当前状态（已交付：离线 mock 骨架）** 🚧
-> `src/` 下已落地一个**纯标准库、可离线运行**的 CLI 运行时：Orchestrator 状态机已写成代码（`core/state_machine.py`，忠实映射 `skills/00-orchestrator/SKILL.md` 路由表），14 个 Skill 的 mock 执行器端到端产出全套落盘产物，CLI 提供 `new / status / next / run / compose / skills / providers`。
-> **剩余 M1 工作**：把 `backends/mock.py` 换成真实 HTTP Adapter（OpenAI 兼容 / Seedream / Seedance / MiniMax 等），以及把内存执行器升级为 lease-based `GenerationQueue`。
+> **当前状态（已交付：离线 mock 骨架 + 真实 HTTP Adapter）** 🚧
+> `src/` 下已落地一个**纯标准库、可离线运行**的 CLI 运行时：Orchestrator 状态机已写成代码（`core/state_machine.py`，忠实映射 `skills/00-orchestrator/SKILL.md` 路由表），14 个 Skill 的执行器端到端产出全套落盘产物，CLI 提供 `new / status / next / run / compose / skills / providers`。
+> **真实供应商已接入**：`backends/` 内置 OpenAI 兼容（文本/图像）、Seedream（图像）、Seedance（视频）、MiniMax（配音 T2A v2 + Hailuo 视频）Adapter，采用 `build_request`/`parse_response` 分离设计，可用 `FakeTransport` 做**完整离线单测**；运行时按环境变量解析供应商，无凭证自动回退 mock。
+> **剩余 M1 工作**：把内存顺序执行器升级为 lease-based `GenerationQueue`，以及对接真实 Key 的线上联调验证。
 
 ### 已交付的实际目录（mock 骨架）
 
@@ -88,8 +89,13 @@ agents-studio-ai/
       constants.py            # ✅ readiness 状态机 + weight tier + skill id
       miniyaml.py             # ✅ 零依赖 YAML 输出器（production_plan.yaml 等镜像）
     backends/
-      base.py                 # ✅ Image/Video/Text/TTS Adapter 协议（对齐 packages/adapters/types.ts）
+      base.py                 # ✅ Image/Video/Text/TTS Adapter 协议 + ProviderRequest/Transport
+      http.py                 # ✅ urllib 传输 + FakeTransport（离线单测）+ HTTP Adapter 基类
       mock.py                 # ✅ mock Adapter（离线、确定性、带成本估算）
+      openai_compat.py        # ✅ OpenAI 兼容（chat + images/generations）
+      volcengine.py           # ✅ Seedream 图像（同步）+ Seedance 视频（异步任务/轮询）
+      minimax.py              # ✅ MiniMax T2A v2 配音（hex 音频）+ Hailuo 视频
+      config.py               # ✅ 环境变量解析（显式>env>默认，无凭证回退 mock）
       registry.py             # ✅ 注册表 + 解析兜底（仿 huobao registry.ts）
     agent_runtime/
       skill_loader.py         # ✅ 读 skills/<id>/SKILL.md frontmatter
@@ -162,8 +168,9 @@ agents-studio-ai/
 - [x] 中间产物正确落盘（analysis/ / scripts/ / assets/ / storyboards/ / output/）
 - [x] 状态机支持任意阶段进入与断点续跑（每步落盘 project.json）
 - [x] 进入视频生成前有成本关卡（`run` 默认停下给预估，`--yes`/`--auto` 放行）
-- [ ] 至少支持 2 个图像供应商可切换（环境变量驱动）— **待真实 Adapter**
-- [ ] 接通真实模型调用后，小型示例总耗时 < 30 分钟 — **待真实 Adapter**
+- [x] 至少支持 2 个图像供应商可切换（`seedream` + `openai`，环境变量驱动）
+- [x] 真实 HTTP Adapter 接入（OpenAI 兼容 / Seedream / Seedance / MiniMax）+ 离线单测（`pytest`）
+- [ ] 接通真实 Key 后，小型示例总耗时 < 30 分钟 — **待线上联调**
 - [ ] `GenerationQueue` lease-based 队列（当前为单进程顺序执行）— **待**
 
 ---

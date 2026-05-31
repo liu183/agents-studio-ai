@@ -38,7 +38,47 @@ PYTHONPATH=src python -m cli.main providers   # 列出已注册的 Provider Adap
 
 安装为 `studio` 命令（可选，需要 setuptools，可离线）：`pip install -e .` 后即可直接 `studio run my-drama --auto`。
 
-> **mock 模式说明**：所有图像/视频/配音都由 `src/backends/mock.py` 的占位 Adapter 产出（写入带 `.png/.mp4/.wav` 后缀的占位文件），用于验证**编排正确性与产物落盘结构**。把 mock Adapter 换成真实 HTTP Adapter 不会改变这套编排步骤。
+> **mock 模式说明**：默认无任何凭证时，所有图像/视频/配音都由 `src/backends/mock.py` 的占位 Adapter 产出（写入带 `.png/.mp4/.wav` 后缀的占位文件），用于验证**编排正确性与产物落盘结构**。
+
+## 接入真实供应商
+
+运行时会按 **环境变量** 解析每种媒体使用哪个供应商：**显式选择 > 环境变量 > 系统默认**；若所选真实供应商缺少凭证，则自动回退到 mock，保证流水线永远能跑。配置好凭证后，**同一套编排步骤无需改动**即可产出真实素材（图片/视频会被下载、配音音频会从 hex 解码后落盘）。
+
+已内置的真实 Adapter（`build_request` / `parse_response` 分离，可离线单测）：
+
+| 媒体 | 供应商 | Adapter | 说明 |
+|---|---|---|---|
+| 文本 | OpenAI 兼容 | `openai_compat` | GPT / Qwen / DeepSeek / vLLM 等，`/chat/completions` |
+| 图像 | Seedream（火山方舟）| `seedream` | `/images/generations`，支持图生图/多图融合 |
+| 图像 | OpenAI 兼容 | `openai` | `gpt-image-1` / DALL·E，`/images/generations` |
+| 视频 | Seedance（火山方舟）| `seedance` | 异步任务 + 轮询，支持首尾帧 |
+| 视频 | MiniMax Hailuo | `minimax_video` | 异步：提交 → 查询 → 取回下载链接 |
+| 配音 | MiniMax T2A v2 | `minimax` | 同步，返回 hex 音频 |
+
+```bash
+# 火山方舟（Seedream 图像 + Seedance 视频）
+export ARK_API_KEY=...           # 必填
+export ARK_IMAGE_MODEL=doubao-seedream-4-0-250828
+export ARK_VIDEO_MODEL=doubao-seedance-1-0-pro-250528
+
+# OpenAI 兼容（文本，可选换图像）
+export OPENAI_API_KEY=...
+export OPENAI_BASE_URL=https://api.openai.com/v1
+export OPENAI_TEXT_MODEL=gpt-4o-mini
+
+# MiniMax（配音 / 可选视频）
+export MINIMAX_API_KEY=...
+export MINIMAX_GROUP_ID=...
+
+# 选择具体供应商（可选；默认 image=seedream video=seedance text=openai_compat tts=minimax）
+export STUDIO_IMAGE_PROVIDER=seedream
+
+PYTHONPATH=src python -m cli.main providers          # 查看「已注册」与「当前生效」
+PYTHONPATH=src python -m cli.main run my-drama --yes # 用真实供应商产出
+```
+
+> 沙箱/CI 离线时，真实 Adapter 通过 `FakeTransport` + 预置 JSON 做**完整离线单测**（见 `tests/`）：`PYTHONPATH=src python -m pytest -q`。
+
 
 
 ## 项目定位

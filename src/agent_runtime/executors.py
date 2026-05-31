@@ -17,12 +17,15 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from backends import registry
-from backends.base import AIConfig, ImageRequest, TTSRequest, VideoRequest
+from backends import config as bk
+from backends.base import ImageRequest, TTSRequest, VideoRequest
+from backends.http import UrllibTransport, fetch_media_bytes
 
 from core import constants as C
 from core import miniyaml
 from core.project import Project
+
+_DEFAULT_TRANSPORT = UrllibTransport()
 
 
 @dataclass
@@ -60,6 +63,24 @@ def _add_cost(project: Project, skill: str, amount: float) -> None:
 def _placeholder(project: Project, rel_path: str, note: str) -> str:
     """Write a small placeholder media file so the documented layout exists."""
     return project.write_text(rel_path, f"# MOCK ARTIFACT\n# {note}\n")
+
+
+def _save_media(project: Project, rel_path: str, result, adapter, note: str) -> str:
+    """Persist a generated asset.
+
+    For real providers this downloads the URL (or decodes inline hex/base64
+    bytes) and writes the actual binary. For mock providers (``mock://`` URL,
+    no inline data) ``fetch_media_bytes`` returns None and we fall back to a
+    text placeholder -- keeping the offline pipeline working unchanged.
+    """
+    transport = getattr(adapter, "transport", None) or _DEFAULT_TRANSPORT
+    try:
+        blob = fetch_media_bytes(result, transport)
+    except Exception as exc:  # network/decoding issue -> degrade to placeholder
+        return _placeholder(project, rel_path, f"{note} (fetch failed: {exc})")
+    if blob is not None:
+        return project.write_bytes(rel_path, blob)
+    return _placeholder(project, rel_path, f"{note} <- {result.url}")
 
 
 def _aspect_size(plan: Dict[str, Any]) -> str:
@@ -352,8 +373,7 @@ def run_character_designer(project: Project, params: Dict[str, Any]) -> ExecResu
     target = params.get("target", "character")
     plan = project.data.get("production_plan") or {}
     size = _aspect_size(plan)
-    img = registry.get_image(params.get("image_provider", ""))
-    config = AIConfig(provider=img.provider)
+    img, config = bk.resolve_image(params.get("image_provider"))
     assets = project.data["assets"]
     total_cost = 0.0
     produced: List[str] = []
@@ -378,8 +398,8 @@ def run_character_designer(project: Project, params: Dict[str, Any]) -> ExecResu
                 fname = "wardrobe/default.png" if asset == "wardrobe" else f"{asset}.png"
                 if asset == "three_views":
                     fname = "three_views.png"
-                _placeholder(project, f"assets/characters/{cid}/{fname}",
-                             f"{asset} for {ch['name']} <- {res.url}")
+                _save_media(project, f"assets/characters/{cid}/{fname}", res, img,
+                            f"{asset} for {ch['name']}")
                 visual[asset] = True
                 produced.append(f"{cid}/{asset}")
         summary = f"角色定妆完成：{len(assets['characters'])} 个角色（按 weight tier 强制四件套）"
@@ -388,8 +408,8 @@ def run_character_designer(project: Project, params: Dict[str, Any]) -> ExecResu
             if sc.get("is_main") and not sc.get("reference_image"):
                 res = img.generate(config, ImageRequest(prompt=sc["name"], size=size))
                 total_cost += res.cost
-                _placeholder(project, f"assets/scenes/{sc['id']}/reference.png",
-                             f"scene {sc['name']} <- {res.url}")
+                _save_media(project, f"assets/scenes/{sc['id']}/reference.png", res, img,
+                            f"scene {sc['name']}")
                 sc["reference_image"] = True
                 produced.append(sc["id"])
         summary = f"主场景参考图完成：{len(produced)} 张"
@@ -398,8 +418,8 @@ def run_character_designer(project: Project, params: Dict[str, Any]) -> ExecResu
             if prop.get("importance") in ("high", "medium") and not prop.get("reference_image"):
                 res = img.generate(config, ImageRequest(prompt=prop["name"], size=size))
                 total_cost += res.cost
-                _placeholder(project, f"assets/props/{prop['id']}/reference.png",
-                             f"prop {prop['name']} <- {res.url}")
+                _save_media(project, f"assets/props/{prop['id']}/reference.png", res, img,
+                            f"prop {prop['name']}")
                 prop["reference_image"] = True
                 produced.append(prop["id"])
         summary = f"道具参考图完成：{len(produced)} 张"
@@ -408,8 +428,8 @@ def run_character_designer(project: Project, params: Dict[str, Any]) -> ExecResu
             if not clue.get("reference_image"):
                 res = img.generate(config, ImageRequest(prompt=clue["name"], size=size))
                 total_cost += res.cost
-                _placeholder(project, f"assets/clues/{clue['id']}/reference.png",
-                             f"clue {clue['name']} <- {res.url}")
+                _save_media(project, f"assets/clues/{clue['id']}/reference.png", res, img,
+                            f"clue {clue['name']}")
                 clue["reference_image"] = True
                 produced.append(clue["id"])
         summary = f"线索参考图完成：{len(produced)} 张"
@@ -508,8 +528,7 @@ def run_keyframe_generator(project: Project, params: Dict[str, Any]) -> ExecResu
         return ExecResult(status="error", summary=f"episode {n} not found")
     plan = project.data.get("production_plan") or {}
     size = _aspect_size(plan)
-    img = registry.get_image(params.get("image_provider", ""))
-    config = AIConfig(provider=img.provider)
+    img, config = bk.resolve_image(params.get("image_provider"))
     modes = (ep.get("keyframe_plan") or {}).get("modes", {})
     total_cost = 0.0
     count = 0
@@ -519,12 +538,12 @@ def run_keyframe_generator(project: Project, params: Dict[str, Any]) -> ExecResu
         res = img.generate(config, ImageRequest(prompt=shot["image_prompt"], size=size,
                                                 frame_type="start"))
         total_cost += res.cost
-        _placeholder(project, f"{base}/start_frame.png", f"start frame <- {res.url}")
+        _save_media(project, f"{base}/start_frame.png", res, img, "start frame")
         if mode == "first_last":
             res2 = img.generate(config, ImageRequest(prompt=shot["image_prompt"], size=size,
                                                      frame_type="end"))
             total_cost += res2.cost
-            _placeholder(project, f"{base}/end_frame.png", f"end frame <- {res2.url}")
+            _save_media(project, f"{base}/end_frame.png", res2, img, "end frame")
         shot["readiness"] = "keyframes_locked"  # batch=1 -> auto-lock (no candidate wait)
         count += 1
     total_cost = round(total_cost, 2)
@@ -548,8 +567,8 @@ def run_video_generator(project: Project, params: Dict[str, Any]) -> ExecResult:
         return ExecResult(status="error", summary=f"episode {n} not found")
     plan = project.data.get("production_plan") or {}
     aspect = plan.get("aspect_ratio", "9:16")
-    vid = registry.get_video(params.get("video_provider", ""))
-    config = AIConfig(provider=vid.provider)
+    resolution = (plan.get("budget_constraints") or {}).get("resolution", "1080p")
+    vid, config = bk.resolve_video(params.get("video_provider"))
     modes = (ep.get("keyframe_plan") or {}).get("modes", {})
     total_cost = 0.0
     count = 0
@@ -560,10 +579,10 @@ def run_video_generator(project: Project, params: Dict[str, Any]) -> ExecResult:
             prompt=shot["video_prompt"], generation_mode=mode,
             first_frame_url=f"{base}/start_frame.png",
             last_frame_url=f"{base}/end_frame.png" if mode == "first_last" else None,
-            duration=shot.get("duration", 5), aspect_ratio=aspect,
+            duration=shot.get("duration", 5), aspect_ratio=aspect, resolution=resolution,
         ))
         total_cost += res.cost
-        _placeholder(project, f"{base}/clip.mp4", f"video clip <- {res.url}")
+        _save_media(project, f"{base}/clip.mp4", res, vid, "video clip")
         shot["readiness"] = "video_locked"
         count += 1
     total_cost = round(total_cost, 2)
@@ -620,8 +639,7 @@ def run_tts_synthesizer(project: Project, params: Dict[str, Any]) -> ExecResult:
     assets = project.data["assets"]
     voice_by_name = {c["name"]: c.get("voice_id") for c in assets["characters"]}
     default_voice = _VOICE_CATALOG[0]["voice_id"]
-    tts = registry.get_tts(params.get("tts_provider", ""))
-    config = AIConfig(provider=tts.provider)
+    tts, config = bk.resolve_tts(params.get("tts_provider"))
     total_cost = 0.0
     lines = 0
     for shot in ep["shots"]:
@@ -632,8 +650,8 @@ def run_tts_synthesizer(project: Project, params: Dict[str, Any]) -> ExecResult:
             voice_id = voice_by_name.get(line.get("character"), default_voice)
             res = tts.synthesize(config, TTSRequest(voice_id=voice_id, text=line.get("line", "")))
             total_cost += res.cost
-            _placeholder(project, f"{base}/audio.wav",
-                         f"tts {voice_id} ({res.duration_sec}s) <- {res.url}")
+            _save_media(project, f"{base}/audio.wav", res, tts,
+                        f"tts {voice_id} ({res.duration_sec}s)")
             lines += 1
         # TTS is the last per-shot media step (keyframes + video + audio all
         # locked), so the shot is now fully ready for the composer. We pass
