@@ -39,6 +39,10 @@ def test_real_pipeline_writes_real_bytes(tmp_path, monkeypatch):
     monkeypatch.setenv("STUDIO_IMAGE_PROVIDER", "seedream")
     monkeypatch.setenv("STUDIO_VIDEO_PROVIDER", "seedance")
     monkeypatch.setenv("STUDIO_TTS_PROVIDER", "minimax")
+    # disable per-channel RPM limits so the test runs in milliseconds
+    monkeypatch.setenv("STUDIO_IMAGE_RPM", "0")
+    monkeypatch.setenv("STUDIO_VIDEO_RPM", "0")
+    monkeypatch.setenv("STUDIO_TTS_RPM", "0")
 
     # inject FakeTransport into the registered real adapters
     fake = FakeTransport(router=_router)

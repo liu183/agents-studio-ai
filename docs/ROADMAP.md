@@ -68,10 +68,11 @@
 
 > **目标**：把 Skill 真正接通模型调用，用 CLI 跑通端到端，输出第 1 个 Demo 短剧。
 >
-> **当前状态（已交付：离线 mock 骨架 + 真实 HTTP Adapter）** 🚧
-> `src/` 下已落地一个**纯标准库、可离线运行**的 CLI 运行时：Orchestrator 状态机已写成代码（`core/state_machine.py`，忠实映射 `skills/00-orchestrator/SKILL.md` 路由表），14 个 Skill 的执行器端到端产出全套落盘产物，CLI 提供 `new / status / next / run / compose / skills / providers`。
+> **当前状态（已交付：离线 mock 骨架 + 真实 HTTP Adapter + 双通道 GenerationQueue）** 🚧
+> `src/` 下已落地一个**纯标准库、可离线运行**的 CLI 运行时：Orchestrator 状态机已写成代码（`core/state_machine.py`，忠实映射 `skills/00-orchestrator/SKILL.md` 路由表），14 个 Skill 的执行器端到端产出全套落盘产物，CLI 提供 `new / status / next / run / compose / skills / providers / queue`。
 > **真实供应商已接入**：`backends/` 内置 OpenAI 兼容（文本/图像）、Seedream（图像）、Seedance（视频）、MiniMax（配音 T2A v2 + Hailuo 视频）Adapter，采用 `build_request`/`parse_response` 分离设计，可用 `FakeTransport` 做**完整离线单测**；运行时按环境变量解析供应商，无凭证自动回退 mock。
-> **剩余 M1 工作**：把内存顺序执行器升级为 lease-based `GenerationQueue`，以及对接真实 Key 的线上联调验证。
+> **GenerationQueue 已上线**：`agent_runtime/queue.py` 实现双通道（image/video/tts）lease-based 队列，含 RPM token-bucket 限流、`pending → leased → running → succeeded | failed → retry/dlq` 状态机，每次状态变化即写入 `project.json`（崩溃可恢复，启动时 `recover_expired` 自动回滚过期租约）。06 / 08 / 09 / 11 四个执行器已全部接入队列，按通道并发：image=4 / video=2 / tts=4（可经环境变量覆盖）。
+> **剩余 M1 工作**：对接真实 Key 的线上联调验证。
 
 ### 已交付的实际目录（mock 骨架）
 
@@ -99,7 +100,8 @@ agents-studio-ai/
       registry.py             # ✅ 注册表 + 解析兜底（仿 huobao registry.ts）
     agent_runtime/
       skill_loader.py         # ✅ 读 skills/<id>/SKILL.md frontmatter
-      executors.py            # ✅ 01-12 各 Skill 的 mock 执行器
+      queue.py                # ✅ 双通道 lease-based GenerationQueue（retry/DLQ/RPM/快照）
+      executors.py            # ✅ 01-12 各 Skill 执行器（06/08/09/11 接队列并发）
       runner.py               # ✅ 不依赖完整 Agent SDK 的最小 runner（含成本关卡）
   skills/                     # 已在 M0 完成
   art-styles/                 # 已在 M0 完成
@@ -170,8 +172,8 @@ agents-studio-ai/
 - [x] 进入视频生成前有成本关卡（`run` 默认停下给预估，`--yes`/`--auto` 放行）
 - [x] 至少支持 2 个图像供应商可切换（`seedream` + `openai`，环境变量驱动）
 - [x] 真实 HTTP Adapter 接入（OpenAI 兼容 / Seedream / Seedance / MiniMax）+ 离线单测（`pytest`）
+- [x] `GenerationQueue` lease-based 双通道队列（image=4 / video=2 / tts=4，RPM 限流、retry/DLQ、崩溃可恢复，`studio queue` 检视/恢复）
 - [ ] 接通真实 Key 后，小型示例总耗时 < 30 分钟 — **待线上联调**
-- [ ] `GenerationQueue` lease-based 队列（当前为单进程顺序执行）— **待**
 
 ---
 

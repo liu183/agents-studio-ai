@@ -79,6 +79,28 @@ PYTHONPATH=src python -m cli.main run my-drama --yes # 用真实供应商产出
 
 > 沙箱/CI 离线时，真实 Adapter 通过 `FakeTransport` + 预置 JSON 做**完整离线单测**（见 `tests/`）：`PYTHONPATH=src python -m pytest -q`。
 
+## 双通道任务队列（GenerationQueue）
+
+每集要生成几十到上百张图片 / 视频片段 / 配音；这些步骤通过**双通道、lease-based** 任务队列并发执行（仿 ArcReel `GenerationQueue` + 09-video-generator SKILL）：
+
+- **通道隔离**：`image_channel` (default concurrency=4, RPM=20) / `video_channel` (concurrency=2, RPM=4) / `tts_channel` (concurrency=4, RPM=60)
+- **状态机**：`pending → leased → running → succeeded | failed → retry/dlq`，超出 `max_attempts` 进入 DLQ
+- **崩溃可恢复**：每次状态变化即写入 `project.json` 的 `queue` 字段；启动时 `recover_expired()` 把过期租约的任务回滚到 pending
+- **限流**：每通道独立的 RPM token-bucket（设为 `0` 即关闭）
+- **可观测**：`studio queue <name>` 输出每通道 pending/leased/running/success/failed/dlq 计数；`studio queue <name> retry-dlq` 把 DLQ 全量重排队
+
+```bash
+# 调整并发与限流（默认值在大多数供应商上是安全的）
+export STUDIO_IMAGE_CONCURRENCY=8   STUDIO_IMAGE_RPM=60
+export STUDIO_VIDEO_CONCURRENCY=4   STUDIO_VIDEO_RPM=10
+export STUDIO_TTS_CONCURRENCY=8     STUDIO_TTS_RPM=120
+
+PYTHONPATH=src python -m cli.main run my-drama --auto
+PYTHONPATH=src python -m cli.main queue my-drama          # 查看任务统计
+PYTHONPATH=src python -m cli.main queue my-drama retry-dlq # 重排队所有 DLQ 任务
+```
+
+
 
 
 ## 项目定位

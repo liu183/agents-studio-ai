@@ -251,6 +251,79 @@ def cmd_providers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_queue(args: argparse.Namespace) -> int:
+    from agent_runtime.queue import DLQ, FAILED, LEASED, PENDING, RUNNING, SUCCEEDED
+
+    project = _load_or_fail(args)
+    if project is None:
+        return 1
+    snapshot = project.data.get("queue") or {}
+    channels = snapshot.get("channels") or {}
+    tasks = snapshot.get("tasks") or []
+
+    if not channels and not tasks:
+        print(f"{PENDING} 该项目还没有运行过队列（先 `studio run {project.name}`）")
+        return 0
+
+    if args.action == "status":
+        # tally per channel
+        per_ch: dict = {}
+        for t in tasks:
+            ch = per_ch.setdefault(t["channel"], {s: 0 for s in
+                                                  (PENDING, LEASED, RUNNING, SUCCEEDED, FAILED, DLQ)})
+            ch[t["state"]] = ch.get(t["state"], 0) + 1
+
+        print(f"项目: {project.name}")
+        print("-" * 60)
+        print("通道配置:")
+        for name, conf in channels.items():
+            print(f"  {name:6s}: concurrency={conf.get('concurrency')}  "
+                  f"rpm={conf.get('rpm')}  lease={conf.get('lease_seconds'):.0f}s")
+        print()
+        print("任务统计:")
+        header = f"  {'channel':8s}  {'pending':>7s} {'leased':>7s} {'running':>7s} " \
+                 f"{'success':>7s} {'failed':>7s} {'dlq':>5s}"
+        print(header)
+        for ch in sorted(per_ch):
+            counts = per_ch[ch]
+            print(f"  {ch:8s}  "
+                  f"{counts.get(PENDING, 0):>7d} {counts.get(LEASED, 0):>7d} "
+                  f"{counts.get(RUNNING, 0):>7d} {counts.get(SUCCEEDED, 0):>7d} "
+                  f"{counts.get(FAILED, 0):>7d} {counts.get(DLQ, 0):>5d}")
+        dlq = snapshot.get("dlq") or []
+        if dlq:
+            print()
+            print(f"{WARN} DLQ ({len(dlq)} task) 摘要:")
+            id_to_task = {t["id"]: t for t in tasks}
+            for tid in dlq[:5]:
+                t = id_to_task.get(tid, {})
+                print(f"  - {tid} [{t.get('kind')}] {t.get('last_error', '')[:80]}")
+            if len(dlq) > 5:
+                print(f"  ... 另有 {len(dlq) - 5} 个，详见 project.json")
+            print(f"\n  恢复重试: studio queue {project.name} retry-dlq")
+        return 0
+
+    if args.action == "retry-dlq":
+        moved = 0
+        for t in tasks:
+            if t["state"] == DLQ:
+                t["state"] = PENDING
+                t["attempts"] = 0
+                t["last_error"] = ""
+                moved += 1
+        snapshot["dlq"] = []
+        project.data["queue"] = snapshot
+        project.save()
+        print(f"{OK} 已将 {moved} 个 DLQ 任务恢复为 pending（下次 `run` 会重新调度）")
+        return 0
+
+    # purge
+    project.data["queue"] = {}
+    project.save()
+    print(f"{OK} 已清空队列快照（下次 `run` 会重新创建）")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # shared command plumbing
 # --------------------------------------------------------------------------- #
@@ -333,6 +406,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_providers = sub.add_parser("providers", help="list provider adapters")
     p_providers.set_defaults(func=cmd_providers)
+
+    p_queue = sub.add_parser("queue", help="inspect / manage the generation queue")
+    p_queue.add_argument("name")
+    p_queue.add_argument("action", nargs="?", default="status",
+                         choices=["status", "retry-dlq", "purge"],
+                         help="status (default) | retry-dlq | purge")
+    p_queue.set_defaults(func=cmd_queue)
 
     return parser
 
