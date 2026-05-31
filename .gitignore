@@ -5,6 +5,7 @@ __pycache__/
 .uv/
 *.egg-info/
 .pytest_cache/
+.python-version
 
 # Node
 node_modules/
@@ -23,6 +24,7 @@ build/
 Thumbs.db
 
 # Project runtime
+projects/
 projects/*/output/
 projects/*/.arcreel.db
 projects/*/source/chapters/
